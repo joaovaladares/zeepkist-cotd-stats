@@ -9,8 +9,19 @@ import (
 	"os"
 )
 
-const mapIndexUrl = "https://docs.google.com/spreadsheets/d/1rqtVPKeDxEaBfbNl7whL5HjmzeqIDk8mj3xOtfACyeE/export?format=csv&gid=1863499630"
-const csvDir = "csv"
+const (
+	csvDir = "csv"
+
+	mapIndexUrl = "https://docs.google.com/spreadsheets/d/1rqtVPKeDxEaBfbNl7whL5HjmzeqIDk8mj3xOtfACyeE/export?format=csv&gid=1863499630"
+	// map-index csv columns
+	leftEvent  = 0
+	leftMapper = 2
+	leftName   = 3
+
+	rightEvent  = 8
+	rightMapper = 10
+	rightName   = 11
+)
 
 type MapRecord struct {
 	Event  string
@@ -59,46 +70,53 @@ func readCsvFile(filePath string) [][]string {
 }
 
 func parseRecords(records [][]string) []MapRecord {
-	var mapRecords []MapRecord
-	// FIXME: Make it a bit more modular and avoid duplicated code
-	for i, line := range records {
-		if i > 4 && i < 15 { // Lines with a normal cup and troll cup at the same time
-			var leftRec, rightRec MapRecord
-			for j, field := range line {
-				switch j {
-				case 0:
-					leftRec.Event = field
-				case 2:
-					leftRec.Mapper = field
-				case 3:
-					leftRec.Name = field
-				case 8:
-					rightRec.Event = field
-				case 10:
-					rightRec.Mapper = field
-				case 11:
-					rightRec.Name = field
-				}
-			}
-			mapRecords = append(mapRecords, leftRec)
-			mapRecords = append(mapRecords, rightRec)
+	var out []MapRecord
+
+	for _, row := range records {
+		if isDataLeft(row) {
+			out = append(out, MapRecord{
+				Event:  valueAt(row, leftEvent),
+				Mapper: valueAt(row, leftMapper),
+				Name:   valueAt(row, leftName),
+			})
 		}
-		if i > 15 { // Lines with no troll cups
-			var rec MapRecord
-			for j, field := range line {
-				switch j {
-				case 0:
-					rec.Event = field
-				case 2:
-					rec.Mapper = field
-				case 3:
-					rec.Name = field
-				}
-			}
-			mapRecords = append(mapRecords, rec)
+		if isDataRight(row) {
+			out = append(out, MapRecord{
+				Event:  valueAt(row, rightEvent),
+				Mapper: valueAt(row, rightMapper),
+				Name:   valueAt(row, rightName),
+			})
 		}
 	}
-	return mapRecords
+
+	return out
+}
+
+func valueAt(row []string, idx int) string {
+	if idx >= 0 && idx < len(row) {
+		return row[idx]
+	}
+	return ""
+}
+
+func isHeaderRow(row []string) bool {
+	return valueAt(row, leftEvent) == "COTD #" &&
+		valueAt(row, leftMapper) == "Mapper" &&
+		valueAt(row, leftName) == "Map Name"
+}
+
+func isDataLeft(row []string) bool {
+	return valueAt(row, leftEvent) != "" &&
+		valueAt(row, leftMapper) != "" &&
+		valueAt(row, leftName) != "" &&
+		!isHeaderRow(row)
+}
+
+func isDataRight(row []string) bool {
+	return valueAt(row, rightEvent) != "" &&
+		valueAt(row, rightMapper) != "" &&
+		valueAt(row, rightName) != "" &&
+		!isHeaderRow(row)
 }
 
 func main() {
