@@ -2,32 +2,26 @@ package main
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+
+	"github.com/joaovaladares/cotd-tracker/internal/core"
+	"github.com/joho/godotenv"
 )
 
 const (
 	csvDir = "csv"
 
 	mapIndexUrl = "https://docs.google.com/spreadsheets/d/1rqtVPKeDxEaBfbNl7whL5HjmzeqIDk8mj3xOtfACyeE/export?format=csv&gid=1863499630"
-	// map-index csv columns
-	leftEvent  = 0
-	leftMapper = 2
-	leftName   = 3
 
-	rightEvent  = 8
-	rightMapper = 10
-	rightName   = 11
+	workshopBrowseURL = "https://api.steampowered.com/IPublishedFileService/QueryFiles/v1/"
+	zeepkistAppId     = "1440670"
 )
-
-type MapRecord struct {
-	Event  string
-	Mapper string
-	Name   string
-}
 
 func check(e error) {
 	if e != nil {
@@ -35,17 +29,37 @@ func check(e error) {
 	}
 }
 
+func searchWorkshop(appID, apiKey, text string) {
+	u, err := url.Parse(workshopBrowseURL)
+	check(err)
+	q := u.Query()
+	q.Set("key", apiKey)
+	q.Set("querytype", "12")
+	q.Set("cursor", "*")
+	q.Set("appid", appID)
+	q.Set("search_text", text)
+	q.Set("filetype", "0")
+	q.Set("numberperpage", "10")
+	u.RawQuery = q.Encode()
+
+	resp, err := http.Get(u.String())
+	check(err)
+	defer resp.Body.Close()
+
+	var data any
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	check(err)
+
+	fmt.Printf("%+v\n", data)
+}
+
 func downloadCsvAndSaveFile(url string, fileName string) {
 	resp, err := http.Get(url)
-	if err != nil {
-		check(err)
-	}
+	check(err)
 	defer resp.Body.Close()
 
 	file, err := os.Create(fmt.Sprintf("%s/%s.csv", csvDir, fileName))
-	if err != nil {
-		check(err)
-	}
+	check(err)
 	defer file.Close()
 
 	io.Copy(file, resp.Body)
@@ -69,64 +83,22 @@ func readCsvFile(filePath string) [][]string {
 	return records
 }
 
-func parseRecords(records [][]string) []MapRecord {
-	var out []MapRecord
-
-	for _, row := range records {
-		if isDataLeft(row) {
-			out = append(out, MapRecord{
-				Event:  valueAt(row, leftEvent),
-				Mapper: valueAt(row, leftMapper),
-				Name:   valueAt(row, leftName),
-			})
-		}
-		if isDataRight(row) {
-			out = append(out, MapRecord{
-				Event:  valueAt(row, rightEvent),
-				Mapper: valueAt(row, rightMapper),
-				Name:   valueAt(row, rightName),
-			})
-		}
-	}
-
-	return out
-}
-
-func valueAt(row []string, idx int) string {
-	if idx >= 0 && idx < len(row) {
-		return row[idx]
-	}
-	return ""
-}
-
-func isHeaderRow(row []string) bool {
-	return valueAt(row, leftEvent) == "COTD #" &&
-		valueAt(row, leftMapper) == "Mapper" &&
-		valueAt(row, leftName) == "Map Name"
-}
-
-func isDataLeft(row []string) bool {
-	return valueAt(row, leftEvent) != "" &&
-		valueAt(row, leftMapper) != "" &&
-		valueAt(row, leftName) != "" &&
-		!isHeaderRow(row)
-}
-
-func isDataRight(row []string) bool {
-	return valueAt(row, rightEvent) != "" &&
-		valueAt(row, rightMapper) != "" &&
-		valueAt(row, rightName) != "" &&
-		!isHeaderRow(row)
-}
-
 func main() {
-	// Download mapIndex CSV
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	steamApiKey := os.Getenv("STEAM_API_KEY")
+
 	downloadCsvAndSaveFile(mapIndexUrl, "map_index")
 
 	records := readCsvFile("csv/map_index.csv")
 
-	parsedRecords := parseRecords(records)
-	for _, rec := range parsedRecords {
-		fmt.Println(rec)
-	}
+	parsedRecords := core.ParseMapIndexRecs(records)
+	fmt.Println(parsedRecords[100])
+	searchWorkshop(zeepkistAppId, steamApiKey, parsedRecords[100].Name)
+	// for _, rec := range parsedRecords {
+	// 	fmt.Println(rec)
+	// }
 }
